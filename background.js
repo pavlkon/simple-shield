@@ -1,4 +1,4 @@
-// Simple Shield Ad Blocker - background script
+// simple shield ad blocker - background script
 const api = typeof browser !== "undefined" ? browser : chrome;
 
 let blockedDomains = new Set();
@@ -7,6 +7,7 @@ let disabledSites = new Set();
 const blockedCountByTab = new Map();
 const pendingBadgeTabs = new Set();
 
+// fast url hostname extractor without new URL() allocations
 function getHostname(urlStr) {
   let start = urlStr.indexOf("://");
   start = (start === -1) ? 0 : start + 3;
@@ -23,16 +24,14 @@ function getHostname(urlStr) {
   return urlStr.slice(start, end).toLowerCase();
 }
 
-// dynamically load all json chunks into memory
+// dynamically load json chunks into memory
 async function loadRules() {
   try {
-    // 1. load Paths
     const pathUrl = api.runtime.getURL("rules/network_paths.json");
     const pathRes = await fetch(pathUrl);
     const pathData = await pathRes.json();
     blockedPaths = pathData.paths || [];
 
-    // 2. load Domain Chunks (network_rules_0.json, network_rules_1.json, etc.)
     const allDomains = [];
     let chunkIdx = 0;
 
@@ -49,12 +48,12 @@ async function loadRules() {
         }
         chunkIdx++;
       } catch (e) {
-        break; // reached the last chunk
+        break;
       }
     }
 
     blockedDomains = new Set(allDomains);
-    console.log(`[Simple Shield] Successfully loaded ${blockedDomains.size} domains from ${chunkIdx} file chunks!`);
+    console.log(`[Simple Shield] Loaded ${blockedDomains.size} domains from ${chunkIdx} chunks.`);
   } catch (e) {
     console.error("[Simple Shield] Failed to load rules:", e);
   }
@@ -80,6 +79,7 @@ api.storage.onChanged.addListener((changes, area) => {
   }
 });
 
+// throttled badge UI update
 function bumpBlockedCount(tabId) {
   if (tabId === undefined || tabId < 0) return;
   const count = (blockedCountByTab.get(tabId) || 0) + 1;
@@ -96,7 +96,7 @@ function bumpBlockedCount(tabId) {
   }
 }
 
-// core blocking engine
+// core webRequest blocking engine
 api.webRequest.onBeforeRequest.addListener(
   (details) => {
     if (blockedDomains.size === 0 || details.tabId < 0 || details.type === "main_frame") {
@@ -106,13 +106,18 @@ api.webRequest.onBeforeRequest.addListener(
     const hostname = getHostname(details.url);
     if (!hostname) return { cancel: false };
 
-    // user whitelist
+    // youtube and google avatar safety bypass
+    if (hostname.endsWith("googlevideo.com") || hostname.endsWith("ytimg.com") || hostname.endsWith("ggpht.com") || hostname.endsWith("googleusercontent.com")) {
+      return { cancel: false };
+    }
+
+    // site whitelist check
     if (details.documentUrl && disabledSites.size > 0) {
       const docHost = getHostname(details.documentUrl);
       if (disabledSites.has(docHost)) return { cancel: false };
     }
 
-    // explicit path rules first
+    // explicit path rules check
     if (blockedPaths.length > 0) {
       const fullUrlLower = details.url.toLowerCase();
       for (let i = 0; i < blockedPaths.length; i++) {
@@ -123,15 +128,24 @@ api.webRequest.onBeforeRequest.addListener(
       }
     }
 
-    // first-party protection
+    // first-party protection with ad-path override
     if (details.documentUrl) {
       const docHost = getHostname(details.documentUrl);
+
       if (hostname === docHost || hostname.endsWith("." + docHost) || docHost.endsWith("." + hostname)) {
+        const urlLower = details.url.toLowerCase();
+        const isAdPath = urlLower.includes("/ad") || urlLower.includes("/ads") || urlLower.includes("adblock") || urlLower.includes("/pixel") || urlLower.includes("/telemetry") || urlLower.includes("/analytics") || urlLower.includes("/pagead");
+
+        if (blockedDomains.has(hostname) && isAdPath) {
+          bumpBlockedCount(details.tabId);
+          return { cancel: true };
+        }
+
         return { cancel: false };
       }
     }
 
-    // exact domain match
+    // domain set lookup
     if (blockedDomains.has(hostname)) {
       bumpBlockedCount(details.tabId);
       return { cancel: true };
@@ -168,6 +182,7 @@ if (api.webNavigation) {
   });
 }
 
+// popup messaging
 api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     if (msg.type === "GET_STATE") {
