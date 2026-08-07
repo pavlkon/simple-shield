@@ -128,7 +128,7 @@ api.webRequest.onBeforeRequest.addListener(
       }
     }
 
-    // first-party protection with ad-path override
+    // first-party protection with ad path override
     if (details.documentUrl) {
       const docHost = getHostname(details.documentUrl);
 
