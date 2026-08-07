@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Simple Shield</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <img src="../icons/icon-32.png" alt="" />
+    <h1>Simple Shield</h1>
+  </header>
+
+  <section class="count-card">
+    <div id="blockedCount">0</div>
+    <div class="label">requests blocked on this page</div>
+  </section>
+
+  <section class="site-toggle">
+    <div class="row">
+      <span id="siteName">this site</span>
+      <label class="switch">
+        <input type="checkbox" id="siteToggle" />
+        <span class="slider"></span>
+      </label>
+    </div>
+    <div class="hint" id="toggleHint">Blocking enabled here</div>
+  </section>
+
+  <section class="custom-rules">
+    <h2>Custom filters</h2>
+    <p class="hint">Add a domain (e.g. <code>ads.example.com</code>) or an Adblock Plus-style rule (e.g. <code>||example.com/banner^</code>).</p>
+    <div class="add-row">
+      <input type="text" id="customRuleInput" placeholder="domain.com or ||pattern^" />
+      <button id="addRuleBtn">Add</button>
+    </div>
+    <ul id="customRuleList"></ul>
+  </section>
+
+  <footer>
+    <span>Filters: EasyList (auto-updating source) + your custom list</span>
+  </footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>

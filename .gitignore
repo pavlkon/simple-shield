@@ -1,0 +1,12 @@
+# ignore ZIP packages
+*.zip
+
+# ignore downloaded raw text blocklists
+*.txt
+
+# ignore Python cache
+__pycache__/
+*.pyc
+
+# ignore OS junk
+.DS_Store
