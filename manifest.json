@@ -59,9 +59,8 @@
       ]
     }
   ],
-  "browser_specific_settings": {
+"browser_specific_settings": {
     "gecko": {
-      "id": "simple-shield@pavlkon.org",
       "strict_min_version": "109.0",
       "data_collection_permissions": {
         "required": [
