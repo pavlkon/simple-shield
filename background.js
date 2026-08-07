@@ -4,10 +4,10 @@ const api = typeof browser !== "undefined" ? browser : chrome;
 let blockedDomains = new Set();
 let blockedPaths = [];
 let disabledSites = new Set();
+let customRulesList = [];
 const blockedCountByTab = new Map();
 const pendingBadgeTabs = new Set();
 
-// fast url hostname extractor without new URL() allocations
 function getHostname(urlStr) {
   let start = urlStr.indexOf("://");
   start = (start === -1) ? 0 : start + 3;
@@ -53,6 +53,7 @@ async function loadRules() {
     }
 
     blockedDomains = new Set(allDomains);
+    await applyCustomRules();
     console.log(`[Simple Shield] Loaded ${blockedDomains.size} domains from ${chunkIdx} chunks.`);
   } catch (e) {
     console.error("[Simple Shield] Failed to load rules:", e);
@@ -60,8 +61,26 @@ async function loadRules() {
 }
 
 async function loadSettings() {
-  const stored = await api.storage.local.get("disabledSites");
+  const stored = await api.storage.local.get(["disabledSites", "customRules"]);
   disabledSites = new Set(stored.disabledSites || []);
+  customRulesList = stored.customRules || [];
+}
+
+async function applyCustomRules() {
+  const stored = await api.storage.local.get("customRules");
+  customRulesList = stored.customRules || [];
+  for (const rule of customRulesList) {
+    let clean = rule.trim().toLowerCase();
+    if (!clean || clean.startswith("!") || clean.startswith("@@")) continue;
+    if (clean.startswith("||")) clean = clean.slice(2);
+    if (clean.endswith("^")) clean = clean.slice(0, -1);
+
+    if (clean.includes("/")) {
+      if (!blockedPaths.includes(clean)) blockedPaths.push(clean);
+    } else if (clean) {
+      blockedDomains.add(clean);
+    }
+  }
 }
 
 api.runtime.onInstalled.addListener(() => {
@@ -74,8 +93,14 @@ api.runtime.onStartup.addListener(() => {
 });
 
 api.storage.onChanged.addListener((changes, area) => {
-  if (area === "local" && changes.disabledSites) {
-    disabledSites = new Set(changes.disabledSites.newValue || []);
+  if (area === "local") {
+    if (changes.disabledSites) {
+      disabledSites = new Set(changes.disabledSites.newValue || []);
+    }
+    if (changes.customRules) {
+      customRulesList = changes.customRules.newValue || [];
+      applyCustomRules();
+    }
   }
 });
 
@@ -128,7 +153,7 @@ api.webRequest.onBeforeRequest.addListener(
       }
     }
 
-    // first-party protection with ad path override
+    // first-party protection with ad-path override
     if (details.documentUrl) {
       const docHost = getHostname(details.documentUrl);
 
@@ -182,7 +207,7 @@ if (api.webNavigation) {
   });
 }
 
-// popup messaging
+// popup messaging (handles state, toggles, and custom rules)
 api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     if (msg.type === "GET_STATE") {
@@ -200,6 +225,21 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       else disabledSites.splice(idx, 1);
       await api.storage.local.set({ disabledSites });
       sendResponse({ disabledSites });
+    } else if (msg.type === "GET_CUSTOM_RULES") {
+      const { customRules = [] } = await api.storage.local.get("customRules");
+      sendResponse({ customRules });
+    } else if (msg.type === "ADD_CUSTOM_RULE") {
+      const { customRules = [] } = await api.storage.local.get("customRules");
+      if (!customRules.includes(msg.rule)) customRules.push(msg.rule);
+      await api.storage.local.set({ customRules });
+      await applyCustomRules();
+      sendResponse({ customRules });
+    } else if (msg.type === "REMOVE_CUSTOM_RULE") {
+      const { customRules = [] } = await api.storage.local.get("customRules");
+      const next = customRules.filter(r => r !== msg.rule);
+      await api.storage.local.set({ customRules: next });
+      await loadRules();
+      sendResponse({ customRules: next });
     }
   })();
   return true;
