@@ -7,7 +7,9 @@ let disabledSites = new Set();
 let customRulesList = [];
 const blockedCountByTab = new Map();
 const pendingBadgeTabs = new Set();
+let rulesReadyPromise = null;
 
+// fast url hostname extractor without new URL() allocations
 function getHostname(urlStr) {
   let start = urlStr.indexOf("://");
   start = (start === -1) ? 0 : start + 3;
@@ -71,9 +73,9 @@ async function applyCustomRules() {
   customRulesList = stored.customRules || [];
   for (const rule of customRulesList) {
     let clean = rule.trim().toLowerCase();
-    if (!clean || clean.startswith("!") || clean.startswith("@@")) continue;
-    if (clean.startswith("||")) clean = clean.slice(2);
-    if (clean.endswith("^")) clean = clean.slice(0, -1);
+    if (!clean || clean.startsWith("!") || clean.startsWith("@@")) continue;
+    if (clean.startsWith("||")) clean = clean.slice(2);
+    if (clean.endsWith("^")) clean = clean.slice(0, -1);
 
     if (clean.includes("/")) {
       if (!blockedPaths.includes(clean)) blockedPaths.push(clean);
@@ -122,72 +124,72 @@ function bumpBlockedCount(tabId) {
 }
 
 // core webRequest blocking engine
-api.webRequest.onBeforeRequest.addListener(
-  (details) => {
-    if (blockedDomains.size === 0 || details.tabId < 0 || details.type === "main_frame") {
-      return { cancel: false };
-    }
+function evaluateRequest(details) {
+  if (blockedDomains.size === 0 || details.tabId < 0 || details.type === "main_frame") {
+    return { cancel: false };
+  }
 
-    const hostname = getHostname(details.url);
-    if (!hostname) return { cancel: false };
+  const hostname = getHostname(details.url);
+  if (!hostname) return { cancel: false };
 
-    // youtube and google avatar safety bypass
-    if (hostname.endsWith("googlevideo.com") || hostname.endsWith("ytimg.com") || hostname.endsWith("ggpht.com") || hostname.endsWith("googleusercontent.com")) {
-      return { cancel: false };
-    }
+  // youtube and google avatar safety bypass
+  if (hostname.endsWith("googlevideo.com") || hostname.endsWith("ytimg.com") || hostname.endsWith("ggpht.com") || hostname.endsWith("googleusercontent.com")) {
+    return { cancel: false };
+  }
 
-    // site whitelist check
-    if (details.documentUrl && disabledSites.size > 0) {
-      const docHost = getHostname(details.documentUrl);
-      if (disabledSites.has(docHost)) return { cancel: false };
-    }
+  // site whitelist check
+  if (details.documentUrl && disabledSites.size > 0) {
+    const docHost = getHostname(details.documentUrl);
+    if (disabledSites.has(docHost)) return { cancel: false };
+  }
 
-    // explicit path rules check
-    if (blockedPaths.length > 0) {
-      const fullUrlLower = details.url.toLowerCase();
-      for (let i = 0; i < blockedPaths.length; i++) {
-        if (fullUrlLower.includes(blockedPaths[i])) {
-          bumpBlockedCount(details.tabId);
-          return { cancel: true };
-        }
-      }
-    }
-
-    // first-party protection with ad-path override
-    if (details.documentUrl) {
-      const docHost = getHostname(details.documentUrl);
-
-      if (hostname === docHost || hostname.endsWith("." + docHost) || docHost.endsWith("." + hostname)) {
-        const urlLower = details.url.toLowerCase();
-        const isAdPath = urlLower.includes("/ad") || urlLower.includes("/ads") || urlLower.includes("adblock") || urlLower.includes("/pixel") || urlLower.includes("/telemetry") || urlLower.includes("/analytics") || urlLower.includes("/pagead");
-
-        if (blockedDomains.has(hostname) && isAdPath) {
-          bumpBlockedCount(details.tabId);
-          return { cancel: true };
-        }
-
-        return { cancel: false };
-      }
-    }
-
-    // domain set lookup
-    if (blockedDomains.has(hostname)) {
-      bumpBlockedCount(details.tabId);
-      return { cancel: true };
-    }
-
-    // subdomain cascade
-    let pos = hostname.indexOf('.');
-    while (pos !== -1) {
-      const parent = hostname.slice(pos + 1);
-      if (blockedDomains.has(parent)) {
+  // explicit path rules check
+  if (blockedPaths.length > 0) {
+    const fullUrlLower = details.url.toLowerCase();
+    for (let i = 0; i < blockedPaths.length; i++) {
+      if (fullUrlLower.includes(blockedPaths[i])) {
         bumpBlockedCount(details.tabId);
         return { cancel: true };
       }
-      pos = hostname.indexOf('.', pos + 1);
     }
+  }
 
-    return { cancel: false };
+  // first-party protection: allow normal sites (not in blockedDomains) to request their own resources
+  if (details.documentUrl) {
+    const docHost = getHostname(details.documentUrl);
+
+    if ((hostname === docHost || hostname.endsWith("." + docHost) || docHost.endsWith("." + hostname)) && !blockedDomains.has(hostname)) {
+      return { cancel: false };
+    }
+  }
+
+  // domain set lookup
+  if (blockedDomains.has(hostname)) {
+    bumpBlockedCount(details.tabId);
+    return { cancel: true };
+  }
+
+  // subdomain cascade
+  let pos = hostname.indexOf('.');
+  while (pos !== -1) {
+    const parent = hostname.slice(pos + 1);
+    if (blockedDomains.has(parent)) {
+      bumpBlockedCount(details.tabId);
+      return { cancel: true };
+    }
+    pos = hostname.indexOf('.', pos + 1);
+  }
+
+  return { cancel: false };
+}
+
+
+api.webRequest.onBeforeRequest.addListener(
+  (details) => {
+    if (blockedDomains.size === 0 && rulesReadyPromise) {
+      return rulesReadyPromise.then(() => evaluateRequest(details));
+    }
+    return evaluateRequest(details);
   },
   { urls: ["<all_urls>"] },
   ["blocking"]
@@ -207,7 +209,7 @@ if (api.webNavigation) {
   });
 }
 
-// popup messaging (handles state, toggles, and custom rules)
+// popup messaging
 api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     if (msg.type === "GET_STATE") {
@@ -245,5 +247,5 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   return true;
 });
 
-loadRules();
+rulesReadyPromise = loadRules();
 loadSettings();

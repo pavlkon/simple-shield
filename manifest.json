@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Simple Shield Ad Blocker",
   "short_name": "Simple Shield",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "High-performance lightweight ad blocker using webRequest.",
   "icons": {
     "16": "icons/icon-16.png",
@@ -61,7 +61,7 @@
   ],
 "browser_specific_settings": {
     "gecko": {
-      "id": "simple-shield-v1.0@pavlkon.org",
+      "id": "simple-shield-v1.0.1@pavlkon.org",
       "strict_min_version": "109.0",
       "data_collection_permissions": {
         "required": [
