@@ -7,7 +7,7 @@ A lightweight, in-memory ad and tracker blocker built for Firefox (Manifest V3).
 
 ## Features
 
-- **0.01ms Request Engine:** Uses `webRequestBlocking` with $O(1)$ Hash Set lookups in RAM—zero browser lag or stutter.
+- **0.01ms Request Engine:** Uses `webRequestBlocking` with $O(1)$ Hash Set lookups in RAM zero browser lag or stutter.
 - **2.6+ Million Blocked Domains:** Powered by HaGeZi, OISD, StevenBlack, EasyList, and EasyPrivacy.
 - **100% Local & Private:** Zero telemetry, no remote tracking, no "Acceptable Ads" pay-to-pass bypasses.
 - **100% Benchmark Score:** Achieves a perfect 100% score on the d3ward ad-blocker benchmark.
